@@ -30,10 +30,13 @@ CREATE TABLE IF NOT EXISTS `tbl_cbt_class_groups` (
 
 -- 3. MARK DISTRIBUTIONS
 CREATE TABLE IF NOT EXISTS `tbl_cbt_mark_distributions` (
-    `markdistid` VARCHAR(50) NOT NULL PRIMARY KEY,
+    `markdistid` VARCHAR(50) NOT NULL,
+    `sessionid` VARCHAR(50) DEFAULT '',
+    `termid` VARCHAR(50) DEFAULT '',
     `classgroupid` VARCHAR(50) NOT NULL,
     `markname` VARCHAR(100) NOT NULL,
-    `markscore` INT DEFAULT 0
+    `markscore` INT DEFAULT 0,
+    PRIMARY KEY (`markdistid`, `sessionid`, `termid`, `classgroupid`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- 4. ACADEMIC SESSIONS & TERMS
@@ -46,7 +49,8 @@ CREATE TABLE IF NOT EXISTS `tbl_cbt_sessions` (
 CREATE TABLE IF NOT EXISTS `tbl_cbt_terms` (
     `termid` VARCHAR(50) NOT NULL PRIMARY KEY,
     `termname` VARCHAR(100) NOT NULL,
-    `termposition` VARCHAR(50)
+    `termposition` VARCHAR(50),
+    `is_current` TINYINT(1) DEFAULT 0
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- 5. CLASSES
@@ -70,6 +74,8 @@ CREATE TABLE IF NOT EXISTS `tbl_cbt_subjects` (
 CREATE TABLE IF NOT EXISTS `tbl_cbt_students` (
     `studentid` VARCHAR(50) NOT NULL PRIMARY KEY,
     `schoolid` VARCHAR(50) NOT NULL,
+    `sessionid` VARCHAR(50) DEFAULT '',
+    `termid` VARCHAR(50) DEFAULT '',
     `regnumber` VARCHAR(50) NOT NULL,
     `firstname` VARCHAR(100) NOT NULL,
     `lastname` VARCHAR(100) NOT NULL,
@@ -96,6 +102,10 @@ CREATE TABLE IF NOT EXISTS `tbl_cbt_exams` (
     `subjectname` VARCHAR(150) NOT NULL,
     `markdistid` VARCHAR(50) DEFAULT '',
     `markname` VARCHAR(100) DEFAULT '',
+    `exam_date` DATE DEFAULT NULL,
+    `end_date` DATE DEFAULT NULL,
+    `start_time` TIME DEFAULT '08:00:00',
+    `end_time` TIME DEFAULT '17:00:00',
     `duration_minutes` INT NOT NULL DEFAULT 60,
     `total_questions` INT NOT NULL DEFAULT 40,
     `passmark` INT DEFAULT 50,
@@ -141,14 +151,18 @@ CREATE TABLE IF NOT EXISTS `tbl_cbt_results` (
     `student_name` VARCHAR(255) NOT NULL,
     `examid` VARCHAR(50) NOT NULL,
     `exam_title` VARCHAR(255) NOT NULL,
+    `sessionid` VARCHAR(50) DEFAULT '',
+    `termid` VARCHAR(50) DEFAULT '',
     `classgroupid` VARCHAR(50) DEFAULT '',
     `classid` VARCHAR(50) NOT NULL,
     `subjectid` VARCHAR(50) NOT NULL,
     `markdistid` VARCHAR(50) DEFAULT '',
     `score` DOUBLE(5,2) NOT NULL,
+    `total_score` DOUBLE(5,2) DEFAULT 100.00,
     `total_questions` INT DEFAULT 0,
     `correct_answers` INT DEFAULT 0,
     `time_spent_seconds` INT DEFAULT 0,
+    `date_taken` DATETIME DEFAULT CURRENT_TIMESTAMP,
     `status` VARCHAR(20) DEFAULT 'COMPLETED',
     `sync_status` TINYINT(1) DEFAULT 0, -- 0: Pending Push, 1: Synced
     `submitted_at` DATETIME DEFAULT CURRENT_TIMESTAMP,

@@ -18,6 +18,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_reset'])) {
         $conn->query("TRUNCATE TABLE tbl_cbt_exams");
         $conn->query("TRUNCATE TABLE tbl_cbt_questions");
         $conn->query("TRUNCATE TABLE tbl_cbt_responses");
+        $conn->query("TRUNCATE TABLE tbl_cbt_sessions");
+        $conn->query("TRUNCATE TABLE tbl_cbt_terms");
         
         $log_msg = "Local CBT rosters, subjects, exams, and question banks purged by administrator.";
         $conn->query("INSERT INTO tbl_cbt_sync_logs (sync_type, status, records_affected, message) VALUES ('PURGE', 'SUCCESS', 0, '$log_msg')");
@@ -36,6 +38,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_reset'])) {
         $conn->query("TRUNCATE TABLE tbl_cbt_sync_logs");
         $conn->query("TRUNCATE TABLE tbl_cbt_school");
         $conn->query("TRUNCATE TABLE tbl_cbt_admins");
+        $conn->query("TRUNCATE TABLE tbl_cbt_sessions");
+        $conn->query("TRUNCATE TABLE tbl_cbt_terms");
         
         unset($_SESSION['cbt_admin']);
         header("Location: setup.php?reset_complete=1");
@@ -55,55 +59,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_reset'])) {
 <body style="display: block; padding: 0;">
     <div class="app-layout">
         <!-- SIDEBAR NAVIGATION -->
-        <aside class="sidebar">
-            <div>
-                <div class="sidebar-brand">
-                    <i class="fa-solid fa-laptop-code"></i>
-                    <div>
-                        EduPortal
-                        <span>Offline CBT Admin</span>
-                    </div>
-                </div>
-
-                <div style="padding: 10px 14px; margin-bottom: 16px; background: rgba(255,255,255,0.03); border-radius: 8px; border: 1px solid var(--border-color);">
-                    <div style="font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px;">Admin Logged In:</div>
-                    <div style="font-weight: 700; font-size: 13px; color: var(--text-main); text-overflow: ellipsis; overflow: hidden; white-space: nowrap;"><?= htmlspecialchars(!empty($admin['fullname']) ? $admin['fullname'] : $admin['username']) ?></div>
-                </div>
-                
-                <nav class="sidebar-menu">
-                    <a href="index.php" class="sidebar-link">
-                        <i class="fa-solid fa-gauge-high"></i> Dashboard
-                    </a>
-                    <a href="exams.php" class="sidebar-link">
-                        <i class="fa-solid fa-list-check"></i> Manage Exams
-                    </a>
-                    <a href="questions.php" class="sidebar-link">
-                        <i class="fa-solid fa-layer-group"></i> Question Bank
-                    </a>
-                    <a href="students.php" class="sidebar-link">
-                        <i class="fa-solid fa-users"></i> Student Roster
-                    </a>
-                    <a href="../api/sync_pull.php" class="sidebar-link">
-                        <i class="fa-solid fa-cloud-arrow-down"></i> Pull Online Data
-                    </a>
-                    <a href="../api/sync_push.php" class="sidebar-link">
-                        <i class="fa-solid fa-cloud-arrow-up"></i> Push Scores Online
-                    </a>
-                    <a href="reset.php" class="sidebar-link active">
-                        <i class="fa-solid fa-rotate"></i> Reset Data
-                    </a>
-                    <a href="login.php?logout=1" class="sidebar-link" style="color: var(--danger); margin-top: 8px;">
-                        <i class="fa-solid fa-right-from-bracket"></i> Logout
-                    </a>
-                </nav>
-            </div>
-
-            <div>
-                <a href="../student/login.php" target="_blank" class="btn-launch-student">
-                    <i class="fa-solid fa-up-right-from-square"></i> Launch Student Exam
-                </a>
-            </div>
-        </aside>
+        <?php 
+        $active_nav = 'reset';
+        include __DIR__ . '/sidebar.php'; 
+        ?>
 
         <!-- MAIN CONTENT AREA -->
         <main class="main-content">

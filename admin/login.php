@@ -31,7 +31,7 @@ if ($setup_notice) {
     }
 }
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $username = trim($_POST['username']);
     $password = trim($_POST['password']);
 
@@ -64,7 +64,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         } else {
             // Fallback for default admin if table is somehow not populated yet
-            if (($username === 'admin' || $username === 'administrator') && ($password === 'admin123' || $password === 'password')) {
+            if (($username === 'admin' || $username === 'administrator') && ($password === 'CBTADMIN2026' || $password === 'admin123' || $password === 'password')) {
                 $_SESSION['cbt_admin'] = [
                     'adminid' => 'ADM_LOCAL_001',
                     'schoolid' => $school['schoolid'],
@@ -104,12 +104,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             </div>
 
             <?php if ($setup_notice): ?>
-                <div class="alert alert-success" style="text-align: left; font-size: 13px; margin-bottom: 20px;">
-                    <i class="fa-solid fa-circle-check"></i> <strong>School Setup Completed!</strong><br>
-                    Admin credentials fetched into offline database.<br>
-                    <div style="margin-top: 6px; background: rgba(0,0,0,0.2); padding: 8px 12px; border-radius: 6px;">
-                        Username: <strong><?= htmlspecialchars($suggested_admin ? $suggested_admin['username'] : 'admin') ?></strong><br>
-                        Password: <strong><?= htmlspecialchars($suggested_admin ? $suggested_admin['password_raw'] : 'admin123') ?></strong>
+                <div class="alert alert-success" style="text-align: left; font-size: 13px; margin-bottom: 20px; line-height: 1.5; border-left: 4px solid var(--success);">
+                    <div style="font-size: 14px; font-weight: 700; margin-bottom: 6px; display: flex; align-items: center; gap: 8px;">
+                        <i class="fa-solid fa-circle-check" style="font-size: 18px; color: var(--success);"></i> Initial Setup Completed!
+                    </div>
+                    <div>Administrator account initialized in offline exam server:</div>
+                    <div style="margin: 10px 0; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.08); padding: 10px 14px; border-radius: 8px;">
+                        <div>Username: <strong style="font-family: monospace; font-size: 14px; color: #ffffff;"><?= htmlspecialchars($suggested_admin ? $suggested_admin['username'] : 'admin') ?></strong></div>
+                        <div style="margin-top: 4px;">Default Password: <strong style="font-family: monospace; font-size: 14px; color: #38bdf8;">CBTADMIN2026</strong></div>
+                    </div>
+                    <div style="color: #fbbf24; font-size: 12px; display: flex; align-items: flex-start; gap: 6px; margin-top: 6px;">
+                        <i class="fa-solid fa-triangle-exclamation" style="margin-top: 2px; flex-shrink: 0;"></i>
+                        <span><strong>Security Note:</strong> Please change your default password once you log in.</span>
                     </div>
                 </div>
             <?php endif; ?>
@@ -121,12 +127,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <form method="POST" action="">
                 <div class="form-group" style="text-align: left;">
                     <label class="form-label" for="username"><i class="fa-solid fa-user-gear"></i> Admin Username</label>
-                    <input type="text" id="username" name="username" class="form-control" placeholder="Enter Admin Username (e.g. admin)" value="<?= htmlspecialchars($suggested_admin ? $suggested_admin['username'] : 'admin') ?>" required autofocus>
+                    <input type="text" id="username" name="username" class="form-control" placeholder="Enter Admin Username" value="<?= htmlspecialchars($suggested_admin ? $suggested_admin['username'] : 'admin') ?>" required autofocus>
                 </div>
 
                 <div class="form-group" style="text-align: left;">
                     <label class="form-label" for="password"><i class="fa-solid fa-key"></i> Password</label>
-                    <input type="password" id="password" name="password" class="form-control" placeholder="Enter Password" value="<?= htmlspecialchars($suggested_admin ? $suggested_admin['password_raw'] : 'admin123') ?>" required>
+                    <input type="password" id="password" name="password" class="form-control" placeholder="Enter Password" value="<?= $setup_notice ? 'CBTADMIN2026' : '' ?>" required>
                 </div>
 
                 <button type="submit" class="btn btn-primary" style="width: 100%; padding: 14px; font-size: 16px; margin-top: 8px; font-weight: 700; background: var(--accent); border-color: var(--accent);">

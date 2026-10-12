@@ -72,7 +72,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             </form>
 
             <div style="margin-top: 24px; font-size: 13px; color: var(--text-muted);">
-                <i class="fa-solid fa-shield-halved"></i> 100% Offline Secured LAN Connection
+                <i class="fa-solid fa-shield-halved"></i> 100% Offline Secured LAN Connection &bull; v<?= defined('CBT_VERSION') ? CBT_VERSION : '1.0.0' ?>
             </div>
         </div>
     </div>
