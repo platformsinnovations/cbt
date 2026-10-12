@@ -12,6 +12,7 @@ set "MARIADB_BIN=%APP_DIR%mariadb\bin"
 set "MYSQL_EXE=%MARIADB_BIN%\mysqld.exe"
 set "WWW_DIR=%APP_DIR%www"
 set "DATA_DIR=%APP_DIR%data"
+set "DB_DIR=%DATA_DIR%\mariadb"
 set "SESSIONS_DIR=%DATA_DIR%\sessions"
 set "LOG_DIR=%DATA_DIR%\logs"
 set "SERVER_PORT=8080"
@@ -21,6 +22,7 @@ set "MYSQL_PORT=3306"
 :: Create required directories
 :: -----------------------------------------------------------------------
 if not exist "%DATA_DIR%"     mkdir "%DATA_DIR%"
+if not exist "%DB_DIR%"       mkdir "%DB_DIR%"
 if not exist "%SESSIONS_DIR%" mkdir "%SESSIONS_DIR%"
 if not exist "%LOG_DIR%"      mkdir "%LOG_DIR%"
 
@@ -48,17 +50,15 @@ tasklist /FI "IMAGENAME eq mysqld.exe" 2>nul | find /I "mysqld.exe" >nul
 if %errorlevel% neq 0 (
     echo Starting MariaDB...
     :: Initialize data directory if this is the first run
-    if not exist "%DATA_DIR%\mysql\" (
+    if not exist "%DB_DIR%\mysql\" (
         echo First run: initializing MariaDB data directory...
         "%MARIADB_BIN%\mysql_install_db.exe" ^
-            --datadir="%DATA_DIR%" ^
-            --password=cbt_pass_2024! ^
-            --default-user=cbt_user ^
+            --datadir="%DB_DIR%" ^
             >> "%LOG_DIR%\mariadb_install.log" 2>&1
     )
     start "" /B "%MYSQL_EXE%" ^
         --defaults-file="%APP_DIR%my.ini" ^
-        --datadir="%DATA_DIR%" ^
+        --datadir="%DB_DIR%" ^
         --port=%MYSQL_PORT% ^
         --bind-address=127.0.0.1 ^
         --log-error="%LOG_DIR%\mariadb.log"
@@ -78,6 +78,7 @@ if %errorlevel% neq 0 (
     echo Starting PHP server on port %SERVER_PORT%...
     start "" /B "%PHP_EXE%" -S 0.0.0.0:%SERVER_PORT% -t "%WWW_DIR%" ^
         -c "%APP_DIR%php\php.ini" ^
+        -d session.save_path="%SESSIONS_DIR%" ^
         >> "%LOG_DIR%\php_server.log" 2>&1
     echo PHP server started.
 ) else (

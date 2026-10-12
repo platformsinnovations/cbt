@@ -34,7 +34,7 @@ DefaultDirName         = {autopf}\CBT Offline
 DefaultGroupName       = {#AppShortName}
 DisableProgramGroupPage= yes
 OutputDir              = dist
-OutputBaseFilename     = CBT-Setup
+OutputBaseFilename     = EduPortal-CBT-Setup-v1.0.3
 ; SetupIconFile -- uncomment and set path if you add a favicon.ico to the project
 ; SetupIconFile          = {#BuildDir}\assets\favicon.ico
 Compression            = lzma2/ultra64
@@ -57,6 +57,13 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 [Tasks]
 Name: "desktopicon";    Description: "Create a &desktop shortcut";          GroupDescription: "Additional icons:"
 Name: "startupicon";    Description: "Start CBT Manager when &Windows starts"; GroupDescription: "Additional icons:"
+
+[Dirs]
+Name: "{app}\data"; Permissions: users-modify
+Name: "{app}\data\mariadb"; Permissions: users-modify
+Name: "{app}\data\sessions"; Permissions: users-modify
+Name: "{app}\data\logs"; Permissions: users-modify
+Name: "{app}\www\config"; Permissions: users-modify
 
 [Files]
 ; --- PHP Runtime ---
@@ -92,17 +99,22 @@ Name: "{userstartup}\{#AppShortName}";       Filename: "{app}\CBTManager.exe"; T
 Root: HKLM; Subkey: "SOFTWARE\{#AppPublisher}\{#AppShortName}"; ValueType: string; ValueName: "InstallPath"; ValueData: "{app}"; Flags: uninsdeletekey
 
 [Run]
-; 1. Write config.ini with database credentials
+; 1. Initialize MariaDB data directory during installation
+Filename: "{app}\mariadb\bin\mysql_install_db.exe"; \
+    Parameters: "--datadir=""{app}\data\mariadb"""; \
+    Flags: runhidden; StatusMsg: "Initializing offline database..."
+
+; 2. Write config.ini with database credentials
 Filename: "{sys}\cmd.exe"; \
-    Parameters: "/C echo [database]> ""{app}\www\config\config.ini"" && echo host=127.0.0.1>> ""{app}\www\config\config.ini"" && echo port=3306>> ""{app}\www\config\config.ini"" && echo user=cbt_user>> ""{app}\www\config\config.ini"" && echo pass=cbt_pass_2024!>> ""{app}\www\config\config.ini"" && echo name=db_cbt_offline>> ""{app}\www\config\config.ini"" && echo.>> ""{app}\www\config\config.ini"" && echo [server]>> ""{app}\www\config\config.ini"" && echo port=8080>> ""{app}\www\config\config.ini"""; \
+    Parameters: "/C echo [database]> ""{app}\www\config\config.ini"" && echo host=127.0.0.1>> ""{app}\www\config\config.ini"" && echo port=3306>> ""{app}\www\config\config.ini"" && echo user=root>> ""{app}\www\config\config.ini"" && echo pass=>> ""{app}\www\config\config.ini"" && echo name=db_cbt_offline>> ""{app}\www\config\config.ini"" && echo.>> ""{app}\www\config\config.ini"" && echo [server]>> ""{app}\www\config\config.ini"" && echo port=8080>> ""{app}\www\config\config.ini"""; \
     Flags: runhidden; StatusMsg: "Writing configuration..."
 
-; 2. Open Windows Firewall rule for port 8080
+; 3. Open Windows Firewall rule for port 8080
 Filename: "{sys}\netsh.exe"; \
     Parameters: "advfirewall firewall add rule name=""CBT Offline Server"" dir=in action=allow protocol=TCP localport=8080 profile=private,domain description=""CBT Offline Exam Server — allows student LAN access"""; \
     Flags: runhidden; StatusMsg: "Configuring firewall..."
 
-; 3. Launch CBT Manager after install (tray app auto-starts server)
+; 4. Launch CBT Manager after install (tray app auto-starts server)
 Filename: "{app}\CBTManager.exe"; \
     Description: "Launch CBT Manager (start the server)"; \
     Flags: nowait postinstall skipifsilent

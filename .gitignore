@@ -11,3 +11,4 @@ $RECYCLE.BIN/
 # Temporary files & logs
 *.log
 *.tmp
+installer/*
