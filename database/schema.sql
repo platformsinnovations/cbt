@@ -188,7 +188,7 @@ CREATE TABLE IF NOT EXISTS `tbl_cbt_admins` (
     `password_raw` VARCHAR(100) NOT NULL,
     `password_hash` VARCHAR(255) DEFAULT '',
     `fullname` VARCHAR(150) NOT NULL,
-    `role` VARCHAR(50) DEFAULT 'Admin',
+    `role` VARCHAR(255) DEFAULT 'Admin',
     `last_login` DATETIME NULL,
     UNIQUE KEY `idx_school_username` (`schoolid`, `username`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

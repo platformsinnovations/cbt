@@ -272,7 +272,7 @@ if (isset($_GET['execute']) || isset($_GET['auto'])) {
                 $pwd_raw = $default_admin_pwd;
                 $pwd_hash = password_hash($default_admin_pwd, PASSWORD_DEFAULT);
                 $fname = !empty($adm['fullname']) ? $adm['fullname'] : (!empty($adm['name']) ? $adm['name'] : 'System Administrator');
-                $arole = !empty($adm['role']) ? $adm['role'] : 'Admin';
+                $arole = !empty($adm['role']) ? substr($adm['role'], 0, 255) : 'Admin';
 
                 // If admin already changed password from default, preserve it across re-syncs
                 $esc_u = $conn->real_escape_string($uname);

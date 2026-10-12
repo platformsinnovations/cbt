@@ -33,8 +33,15 @@ $PhpZip     = Join-Path $TempDir "php.zip"
 $MariaDbUrl = "https://downloads.mariadb.org/rest-api/mariadb/10.11.11/mariadb-10.11.11-winx64.zip"
 $MariaDbZip = Join-Path $TempDir "mariadb.zip"
 
+$CscCompiler  = "$env:SystemRoot\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
+if (-not (Test-Path $CscCompiler)) {
+    $CscCompiler = "$env:SystemRoot\Microsoft.NET\Framework\v4.0.30319\csc.exe"
+}
 $AhkCompiler  = "C:\Program Files\AutoHotkey\Compiler\Ahk2Exe.exe"
 $InnoCompiler = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+if (-not (Test-Path $InnoCompiler)) {
+    $InnoCompiler = "C:\Program Files\Inno Setup 6\ISCC.exe"
+}
 
 # ============================================================================
 Write-Host ""
@@ -152,34 +159,46 @@ Write-Host "    [OK] Launcher scripts copied." -ForegroundColor Green
 
 # ============================================================================
 Write-Host ""
-Write-Host ">>> Step 6 -- Compiling CBTManager.exe (AutoHotkey)" -ForegroundColor Cyan
+Write-Host ">>> Step 6 -- Compiling CBTManager.exe" -ForegroundColor Cyan
 
-if (Test-Path $AhkCompiler) {
-    $AhkScript  = Join-Path $ScriptDir "CBTManager.ahk"
-    $AhkOutput  = Join-Path $BuildDir  "CBTManager.exe"
-    $FaviconSrc = Join-Path $ProjectRoot "assets\favicon.ico"
+$CsSource   = Join-Path $ScriptDir "CBTManager.cs"
+$AhkScript  = Join-Path $ScriptDir "CBTManager.ahk"
+$ManagerExe = Join-Path $BuildDir  "CBTManager.exe"
+$FaviconSrc = Join-Path $ProjectRoot "assets\favicon.ico"
 
+if (Test-Path $FaviconSrc) {
+    Copy-Item $FaviconSrc "$BuildDir\assets\favicon.ico" -Force
+}
+
+if ((Test-Path $CsSource) -and (Test-Path $CscCompiler)) {
+    Write-Host "    Compiling CBTManager.cs with C# compiler ($CscCompiler)..."
+    $cscArgs = @("/target:winexe", "/optimize", "/out:$ManagerExe")
     if (Test-Path $FaviconSrc) {
-        Copy-Item $FaviconSrc "$BuildDir\assets\favicon.ico" -Force
-        $ahkArgs = "/in `"$AhkScript`" /out `"$AhkOutput`" /icon `"$FaviconSrc`""
-    } else {
-        $ahkArgs = "/in `"$AhkScript`" /out `"$AhkOutput`""
+        $cscArgs += "/win32icon:$FaviconSrc"
     }
-
-    Write-Host "    Compiling CBTManager.ahk..."
+    $cscArgs += "`"$CsSource`""
+    
+    $proc = Start-Process -FilePath $CscCompiler -ArgumentList $cscArgs -Wait -NoNewWindow -PassThru
+    if ($proc.ExitCode -eq 0 -and (Test-Path $ManagerExe)) {
+        Write-Host "    [OK] CBTManager.exe compiled successfully (Native .NET Windows Application)." -ForegroundColor Green
+    } else {
+        throw "C# compilation of CBTManager.cs failed."
+    }
+} elseif (Test-Path $AhkCompiler) {
+    Write-Host "    Compiling CBTManager.ahk with AutoHotkey..."
+    if (Test-Path $FaviconSrc) {
+        $ahkArgs = "/in `"$AhkScript`" /out `"$ManagerExe`" /icon `"$FaviconSrc`""
+    } else {
+        $ahkArgs = "/in `"$AhkScript`" /out `"$ManagerExe`""
+    }
     Start-Process -FilePath $AhkCompiler -ArgumentList $ahkArgs -Wait -NoNewWindow
-    if (Test-Path $AhkOutput) {
-        Write-Host "    [OK] CBTManager.exe compiled." -ForegroundColor Green
+    if (Test-Path $ManagerExe) {
+        Write-Host "    [OK] CBTManager.exe compiled with AutoHotkey." -ForegroundColor Green
     } else {
         throw "AHK compilation failed - CBTManager.exe not found."
     }
 } else {
-    Write-Host "    [WARN] AutoHotkey not found at: $AhkCompiler" -ForegroundColor Yellow
-    Write-Host "    [WARN] Install from https://www.autohotkey.com/download/1.x/" -ForegroundColor Yellow
-    Write-Host "    [WARN] Skipping CBTManager.exe -- using php.exe as placeholder." -ForegroundColor Yellow
-    if (-not (Test-Path "$BuildDir\CBTManager.exe")) {
-        Copy-Item "$BuildDir\php\php.exe" "$BuildDir\CBTManager.exe" -Force
-    }
+    throw "Neither C# compiler (csc.exe) nor AutoHotkey compiler (Ahk2Exe.exe) was found. Cannot build CBTManager.exe."
 }
 
 # ============================================================================
@@ -191,10 +210,13 @@ if (Test-Path $InnoCompiler) {
     Write-Host "    Compiling setup.iss..."
     & $InnoCompiler $IssFile
     if ($LASTEXITCODE -eq 0) {
-        $OutputExe = Join-Path $DistDir "CBT-Setup.exe"
+        $OutputExe = Join-Path $DistDir "EduPortal-CBT-Setup-v1.0.3.exe"
+        if (-not (Test-Path $OutputExe)) {
+            $OutputExe = (Get-ChildItem -Path $DistDir -Filter "EduPortal-CBT-Setup*.exe" | Sort-Object LastWriteTime -Descending | Select-Object -First 1).FullName
+        }
         if (Test-Path $OutputExe) {
             $fileSizeMB = [string]([math]::Round((Get-Item $OutputExe).Length / 1MB, 1)) + " MB"
-            Write-Host "    [OK] CBT-Setup.exe created! Size: $fileSizeMB" -ForegroundColor Green
+            Write-Host "    [OK] Installer created! Size: $fileSizeMB" -ForegroundColor Green
             Write-Host "    [OK] File: $OutputExe" -ForegroundColor Green
         }
     } else {

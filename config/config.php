@@ -139,10 +139,18 @@ define('CBT_BASE_URL', get_server_base_url());
 function get_db_connection($create_db_if_missing = true) {
     static $conn = null;
     if ($conn === null) {
-        $conn = @new mysqli(DB_HOST, DB_USER, DB_PASS, '', DB_PORT);
-        if ($conn->connect_error) {
-            die("Database Connection Error: " . $conn->connect_error .
-                "<br><small>Host: " . DB_HOST . ":" . DB_PORT . "</small>");
+        try {
+            $conn = @new mysqli(DB_HOST, DB_USER, DB_PASS, '', DB_PORT);
+            if ($conn->connect_error) {
+                die("Database Connection Error: " . htmlspecialchars($conn->connect_error) .
+                    "<br><small>Host: " . htmlspecialchars(DB_HOST . ":" . DB_PORT) . "</small>");
+            }
+        } catch (mysqli_sql_exception $e) {
+            die("<div style='font-family:sans-serif;padding:30px;max-width:600px;margin:50px auto;background:#fff3cd;border:1px solid #ffeeba;border-radius:8px;'>" .
+                "<h3 style='color:#856404;margin-top:0;'>Database Connection Error</h3>" .
+                "<p>" . htmlspecialchars($e->getMessage()) . "</p>" .
+                "<p><small>Please make sure MariaDB is running on " . htmlspecialchars(DB_HOST . ":" . DB_PORT) . ".</small></p>" .
+                "</div>");
         }
         if ($create_db_if_missing) {
             $conn->query("CREATE DATABASE IF NOT EXISTS `" . DB_NAME . "`
