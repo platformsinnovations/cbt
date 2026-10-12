@@ -11,6 +11,22 @@ $admin = $_SESSION['cbt_admin'];
 $selected_class = isset($_GET['classid']) ? trim($_GET['classid']) : '';
 $search_query = isset($_GET['q']) ? trim($_GET['q']) : '';
 
+// Resolve Active Session & Term
+$active_session_name = '';
+$active_term_name = '';
+if (!empty($school['current_sessionid'])) {
+    $s_chk = $conn->query("SELECT sessionname FROM tbl_cbt_sessions WHERE sessionid = '" . $conn->real_escape_string($school['current_sessionid']) . "' LIMIT 1");
+    if ($s_chk && $s_chk->num_rows > 0) {
+        $active_session_name = $s_chk->fetch_assoc()['sessionname'];
+    }
+}
+if (!empty($school['current_termid'])) {
+    $t_chk = $conn->query("SELECT termname FROM tbl_cbt_terms WHERE termid = '" . $conn->real_escape_string($school['current_termid']) . "' LIMIT 1");
+    if ($t_chk && $t_chk->num_rows > 0) {
+        $active_term_name = $t_chk->fetch_assoc()['termname'];
+    }
+}
+
 // Fetch all distinct classes / class names for filter dropdown with student counts
 $all_classes = [];
 $seen_classes = [];
@@ -105,6 +121,11 @@ if ($has_filter) {
         $where_clauses[] = "(regnumber LIKE '%$esc_q%' OR firstname LIKE '%$esc_q%' OR lastname LIKE '%$esc_q%' OR studentid LIKE '%$esc_q%')";
     }
 
+    if (!empty($school['current_sessionid'])) {
+        $esc_cur_sess = $conn->real_escape_string($school['current_sessionid']);
+        $where_clauses[] = "(sessionid = '$esc_cur_sess' OR sessionid = '' OR sessionid IS NULL)";
+    }
+
     $where_sql = implode(' AND ', $where_clauses);
     $res_students = $conn->query("SELECT * FROM tbl_cbt_students WHERE $where_sql ORDER BY classname ASC, regnumber ASC");
     if ($res_students) {
@@ -187,55 +208,10 @@ if ($has_filter) {
 <body style="display: block; padding: 0;">
     <div class="app-layout">
         <!-- SIDEBAR NAVIGATION -->
-        <aside class="sidebar no-print">
-            <div>
-                <div class="sidebar-brand">
-                    <i class="fa-solid fa-laptop-code"></i>
-                    <div>
-                        EduPortal
-                        <span>Offline CBT Admin</span>
-                    </div>
-                </div>
-                
-                <div style="padding: 10px 14px; margin-bottom: 16px; background: rgba(255,255,255,0.03); border-radius: 8px; border: 1px solid var(--border-color);">
-                    <div style="font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px;">Admin Logged In:</div>
-                    <div style="font-weight: 700; font-size: 13px; color: var(--text-main); text-overflow: ellipsis; overflow: hidden; white-space: nowrap;"><?= htmlspecialchars(!empty($admin['fullname']) ? $admin['fullname'] : $admin['username']) ?></div>
-                </div>
-
-                <nav class="sidebar-menu">
-                    <a href="index.php" class="sidebar-link">
-                        <i class="fa-solid fa-gauge-high"></i> Dashboard
-                    </a>
-                    <a href="exams.php" class="sidebar-link">
-                        <i class="fa-solid fa-list-check"></i> Manage Exams
-                    </a>
-                    <a href="questions.php" class="sidebar-link">
-                        <i class="fa-solid fa-layer-group"></i> Question Bank
-                    </a>
-                    <a href="students.php" class="sidebar-link active">
-                        <i class="fa-solid fa-users"></i> Student Roster
-                    </a>
-                    <a href="../api/sync_pull.php" class="sidebar-link">
-                        <i class="fa-solid fa-cloud-arrow-down"></i> Pull Online Data
-                    </a>
-                    <a href="../api/sync_push.php" class="sidebar-link">
-                        <i class="fa-solid fa-cloud-arrow-up"></i> Push Scores Online
-                    </a>
-                    <a href="reset.php" class="sidebar-link">
-                        <i class="fa-solid fa-rotate"></i> Reset Data
-                    </a>
-                    <a href="login.php?logout=1" class="sidebar-link" style="color: var(--danger); margin-top: 8px;">
-                        <i class="fa-solid fa-right-from-bracket"></i> Logout
-                    </a>
-                </nav>
-            </div>
-
-            <div>
-                <a href="../student/login.php" target="_blank" class="btn-launch-student">
-                    <i class="fa-solid fa-up-right-from-square"></i> Launch Student Exam
-                </a>
-            </div>
-        </aside>
+        <?php 
+        $active_nav = 'students';
+        include __DIR__ . '/sidebar.php'; 
+        ?>
 
         <!-- MAIN CONTENT AREA -->
         <main class="main-content">
@@ -244,7 +220,14 @@ if ($has_filter) {
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 12px;">
                     <div>
                         <div class="card-title" style="margin-bottom: 4px;"><i class="fa-solid fa-users" style="color: var(--primary);"></i> Student Management & CBT Exam Registration Slips</div>
-                        <div class="card-desc">Filter students by class, view registration credentials, or print exam admission slips.</div>
+                        <div class="card-desc">
+                            Filter students by class, view registration credentials, or print exam admission slips.
+                            <?php if (!empty($active_session_name) || !empty($active_term_name)): ?>
+                                <span style="display: inline-block; margin-left: 8px; background: rgba(37,99,235,0.15); border: 1px solid rgba(59,130,246,0.4); color: #93c5fd; padding: 2px 10px; border-radius: 6px; font-size: 12px; font-weight: 600;">
+                                    <i class="fa-solid fa-calendar-check"></i> Active Filter: <?= htmlspecialchars($active_session_name ? $active_session_name : '') ?><?= (!empty($active_session_name) && !empty($active_term_name)) ? ' &bull; ' : '' ?><?= htmlspecialchars($active_term_name ? $active_term_name : '') ?>
+                                </span>
+                            <?php endif; ?>
+                        </div>
                     </div>
                     <?php if (!empty($students)): ?>
                         <button onclick="window.print()" class="btn btn-primary" style="background: var(--success); border-color: var(--success); font-weight: 700; padding: 10px 18px;">

@@ -27,6 +27,104 @@ if (!$exam) {
     die("Selected exam is not active or available.");
 }
 
+// Check if student already completed this exam
+$chk_sub = $conn->query("SELECT score, total_score, total_questions, correct_answers, date_taken, submitted_at FROM tbl_cbt_results WHERE studentid = '" . $conn->real_escape_string($student['studentid']) . "' AND examid = '" . $conn->real_escape_string($examid) . "' LIMIT 1");
+if ($chk_sub && $chk_sub->num_rows > 0) {
+    $sub_row = $chk_sub->fetch_assoc();
+
+    // Resolve Target Mark Distribution Score
+    $mark_dist_score = 0;
+    if (!empty($exam['markdistid'])) {
+        $mdid_esc = $conn->real_escape_string($exam['markdistid']);
+        $cgid_esc = !empty($exam['classgroupid']) ? $conn->real_escape_string($exam['classgroupid']) : (!empty($student['classgroupid']) ? $conn->real_escape_string($student['classgroupid']) : '');
+        $md_q = $conn->query("SELECT markscore FROM tbl_cbt_mark_distributions WHERE markdistid = '$mdid_esc' AND (classgroupid = '$cgid_esc' OR classgroupid = '') LIMIT 1");
+        if (!$md_q || $md_q->num_rows === 0) {
+            $md_q = $conn->query("SELECT markscore FROM tbl_cbt_mark_distributions WHERE markdistid = '$mdid_esc' LIMIT 1");
+        }
+        if ($md_q && $md_q->num_rows > 0) {
+            $md_row = $md_q->fetch_assoc();
+            if (floatval($md_row['markscore']) > 0) {
+                $mark_dist_score = floatval($md_row['markscore']);
+            }
+        }
+    }
+    if ($mark_dist_score <= 0 && !empty($exam['markname'])) {
+        if (preg_match('/(\d+)\s*(?:marks?|pts?|points?)/i', $exam['markname'], $matches)) {
+            $mark_dist_score = floatval($matches[1]);
+        }
+    }
+    if ($mark_dist_score <= 0) {
+        $mark_dist_score = (!empty($sub_row['total_score']) && floatval($sub_row['total_score']) > 0) ? floatval($sub_row['total_score']) : 100.0;
+    }
+
+    $prev_correct = isset($sub_row['correct_answers']) ? intval($sub_row['correct_answers']) : 0;
+    $prev_total = (isset($sub_row['total_questions']) && intval($sub_row['total_questions']) > 0) 
+                    ? intval($sub_row['total_questions']) 
+                    : (intval($exam['total_questions']) > 0 ? intval($exam['total_questions']) : 1);
+    
+    $prev_score = round(($prev_correct / $prev_total) * $mark_dist_score);
+    $prev_max_score = round($mark_dist_score);
+    $prev_percentage = round(($prev_correct / $prev_total) * 100, 2);
+    $prev_date = !empty($sub_row['date_taken']) ? $sub_row['date_taken'] : $sub_row['submitted_at'];
+    $prev_date_str = !empty($prev_date) ? date('d M Y, h:i A', strtotime($prev_date)) : '';
+
+    die("<!DOCTYPE html>
+<html lang='en'>
+<head>
+    <meta charset='UTF-8'>
+    <meta name='viewport' content='width=device-width, initial-scale=1.0'>
+    <title>Examination Completed | " . htmlspecialchars($school_name) . "</title>
+    <link rel='stylesheet' href='../assets/css/style.css'>
+    <link rel='stylesheet' href='https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css'>
+</head>
+<body class='centered-page' style='display:flex; justify-content:center; align-items:center; min-height:100vh; margin:0; padding:20px; box-sizing:border-box;'>
+    <div class='card' style='max-width:540px; width:100%; text-align:center; padding:36px 28px;'>
+        <div style='font-size:54px; color:var(--success); margin-bottom:14px;'><i class='fa-solid fa-circle-check'></i></div>
+        <h2 style='font-size:22px; font-weight:800; color:var(--text-main); margin-bottom:8px;'>Examination Already Completed</h2>
+        <p style='color:var(--text-muted); font-size:14px; margin-bottom:20px;'>You have already completed and submitted <strong>" . htmlspecialchars($exam['title']) . "</strong>. Retakes are not permitted.</p>
+        <div class='stat-box' style='padding:20px; margin-bottom:24px;'>
+            <div class='stat-lbl' style='font-size:12px; text-transform:uppercase; letter-spacing:0.5px;'>Your Recorded Score</div>
+            <div class='stat-val' style='font-size:38px; color:var(--success); font-weight:800; margin:6px 0;'>
+                " . round($prev_score) . " <span style='font-size:20px; color:var(--text-muted); font-weight:600;'>/ " . round($prev_max_score) . "</span>
+            </div>
+            " . ($prev_total > 0 ? "<div style='font-size:13px; color:var(--text-muted);'>Answered correctly: <strong style='color:var(--text-main);'>" . $prev_correct . " / " . $prev_total . "</strong> questions</div>" : "") . "
+            " . (!empty($prev_date_str) ? "<div style='font-size:11px; color:var(--text-muted); margin-top:6px;'>Submitted on: " . $prev_date_str . "</div>" : "") . "
+        </div>
+        <a href='select_exam.php' class='btn btn-primary' style='display:inline-flex; align-items:center; justify-content:center; gap:8px; width:100%; text-decoration:none;'>
+            <i class='fa-solid fa-arrow-left'></i> Return to Exam List
+        </a>
+    </div>
+</body>
+</html>");
+}
+
+// Check schedule window
+$now_ts = time();
+$ex_date = !empty($exam['exam_date']) ? $exam['exam_date'] : date('Y-m-d', strtotime($exam['date_created']));
+$end_date = !empty($exam['end_date']) ? $exam['end_date'] : $ex_date;
+$start_time = !empty($exam['start_time']) ? $exam['start_time'] : '00:00:00';
+$end_time = !empty($exam['end_time']) ? $exam['end_time'] : '23:59:59';
+$start_ts = strtotime($ex_date . ' ' . $start_time);
+$end_ts = strtotime($end_date . ' ' . $end_time);
+
+if ($now_ts < $start_ts) {
+    die("<div style='max-width:520px; margin:60px auto; padding:32px; background:#111827; color:#f8fafc; font-family:sans-serif; border-radius:16px; text-align:center; border:1px solid #374151;'>
+        <div style='font-size:40px; color:#60a5fa; margin-bottom:12px;'><i class='fa-solid fa-calendar-clock'></i></div>
+        <h2 style='margin-bottom:8px;'>Upcoming Examination</h2>
+        <p style='color:#94a3b8; margin-bottom:16px;'>This examination is scheduled for <strong>" . date('M d, Y \a\t h:i A', $start_ts) . "</strong> and is not open yet.</p>
+        <a href='select_exam.php' style='display:inline-block; padding:10px 20px; background:#6366f1; color:#fff; text-decoration:none; border-radius:8px; font-weight:700;'>Return to Exam List</a>
+    </div>");
+}
+
+if ($now_ts > $end_ts) {
+    die("<div style='max-width:520px; margin:60px auto; padding:32px; background:#111827; color:#f8fafc; font-family:sans-serif; border-radius:16px; text-align:center; border:1px solid #374151;'>
+        <div style='font-size:40px; color:#ef4444; margin-bottom:12px;'><i class='fa-solid fa-clock-rotate-left'></i></div>
+        <h2 style='margin-bottom:8px;'>Examination Period Closed</h2>
+        <p style='color:#94a3b8; margin-bottom:16px;'>The scheduled window for this exam closed on <strong>" . date('M d, Y \a\t h:i A', $end_ts) . "</strong>. You can no longer start this exam.</p>
+        <a href='select_exam.php' style='display:inline-block; padding:10px 20px; background:#6366f1; color:#fff; text-decoration:none; border-radius:8px; font-weight:700;'>Return to Exam List</a>
+    </div>");
+}
+
 // Fetch Questions
 $stmt_q = $conn->prepare("SELECT * FROM tbl_cbt_questions WHERE examid = ? ORDER BY questionid ASC");
 $stmt_q->bind_param("s", $examid);
@@ -36,6 +134,10 @@ $res_q = $stmt_q->get_result();
 $questions = [];
 while ($q = $res_q->fetch_assoc()) {
     $questions[] = $q;
+}
+
+if (empty($questions)) {
+    die("This examination does not have any questions configured in the question bank yet. Please contact your administrator.");
 }
 
 // Fetch existing responses for crash recovery
@@ -341,18 +443,19 @@ while ($r = $res_resp->fetch_assoc()) {
         const savedAnswers = <?= json_encode($saved_answers) ?>;
         const savedBookmarks = <?= json_encode($saved_bookmarks) ?>;
         const durationMinutes = <?= intval($exam['duration_minutes']) ?>;
+        const windowRemainingSeconds = <?= max(0, $end_ts - $now_ts) ?>;
 
         let currentIndex = 0;
         let answers = savedAnswers || {};
         let bookmarks = savedBookmarks || {};
-        let timeRemainingSeconds = durationMinutes * 60;
+        let timeRemainingSeconds = Math.min(durationMinutes * 60, windowRemainingSeconds);
         let totalTimeSpentSeconds = 0;
         let warningShown = false;
 
         // Initialize Timer from LocalStorage (Crash Recovery)
         const cachedTime = localStorage.getItem('cbt_time_' + examId);
         if (cachedTime && parseInt(cachedTime, 10) > 0) {
-            timeRemainingSeconds = parseInt(cachedTime, 10);
+            timeRemainingSeconds = Math.min(parseInt(cachedTime, 10), windowRemainingSeconds);
             if (timeRemainingSeconds <= 300) {
                 warningShown = true; // Avoid re-triggering modal on page reload if already under 5 mins
             }

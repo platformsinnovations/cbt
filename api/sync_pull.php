@@ -51,16 +51,79 @@ if (isset($_GET['execute']) || isset($_GET['auto'])) {
     if (!$data || !isset($data['status']) || $data['status'] !== 'success') {
         $err_msg = isset($data['message']) ? $data['message'] : "Failed to connect to online API endpoint ($apiUrl).";
         $error = "API Sync Error: " . $err_msg;
+        if (isset($_GET['schoolid'])) {
+            header("Location: ../admin/setup.php?error=" . urlencode($error) . "&schoolid=" . urlencode($schoolid));
+            exit;
+        }
     } else {
         $pulled_students = 0;
         $pulled_exams = 0;
         $pulled_questions = 0;
+        $pulled_sessions = 0;
+        $pulled_terms = 0;
 
-        // A. Store School Profile
+        // Resolve Active Session & Term from API payload
+        $active_session_id = '';
+        $active_term_id = '';
+
+        if (!empty($data['active_session']) && is_array($data['active_session'])) {
+            $active_session_id = !empty($data['active_session']['sessionid']) ? (string)$data['active_session']['sessionid'] : '';
+        } else if (!empty($data['current_sessionid'])) {
+            $active_session_id = (string)$data['current_sessionid'];
+        }
+
+        if (!empty($data['active_term']) && is_array($data['active_term'])) {
+            $active_term_id = !empty($data['active_term']['termid']) ? (string)$data['active_term']['termid'] : '';
+        } else if (!empty($data['current_termid'])) {
+            $active_term_id = (string)$data['current_termid'];
+        }
+
+        // A. Store School Profile with current_sessionid and current_termid
         $sp = $data['school'];
-        $stmt_sch = $conn->prepare("REPLACE INTO tbl_cbt_school (schoolid, schoolname, schooladdress, logo_path, online_url, last_synced_at) VALUES (?, ?, ?, ?, ?, NOW())");
-        $stmt_sch->bind_param("sssss", $sp['schoolid'], $sp['schoolname'], $sp['schooladdress'], $sp['logo_path'], $online_url);
+        $stmt_sch = $conn->prepare("REPLACE INTO tbl_cbt_school (schoolid, schoolname, schooladdress, logo_path, online_url, current_sessionid, current_termid, last_synced_at) VALUES (?, ?, ?, ?, ?, ?, ?, NOW())");
+        $stmt_sch->bind_param("sssssss", $sp['schoolid'], $sp['schoolname'], $sp['schooladdress'], $sp['logo_path'], $online_url, $active_session_id, $active_term_id);
         $stmt_sch->execute();
+
+        // A2. Store Academic Sessions
+        if (!empty($data['sessions']) && is_array($data['sessions'])) {
+            $conn->query("CREATE TABLE IF NOT EXISTS `tbl_cbt_sessions` (
+                `sessionid` VARCHAR(50) NOT NULL PRIMARY KEY,
+                `sessionname` VARCHAR(100) NOT NULL,
+                `is_current` TINYINT(1) DEFAULT 0
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
+
+            $stmt_sess = $conn->prepare("REPLACE INTO tbl_cbt_sessions (sessionid, sessionname, is_current) VALUES (?, ?, ?)");
+            foreach ($data['sessions'] as $sess) {
+                $is_curr = (!empty($sess['is_current']) || (string)$sess['sessionid'] === $active_session_id) ? 1 : 0;
+                $stmt_sess->bind_param("ssi", $sess['sessionid'], $sess['sessionname'], $is_curr);
+                $stmt_sess->execute();
+                $pulled_sessions++;
+            }
+        }
+
+        // A3. Store Academic Terms
+        if (!empty($data['terms']) && is_array($data['terms'])) {
+            $conn->query("CREATE TABLE IF NOT EXISTS `tbl_cbt_terms` (
+                `termid` VARCHAR(50) NOT NULL PRIMARY KEY,
+                `termname` VARCHAR(100) NOT NULL,
+                `termposition` VARCHAR(50),
+                `is_current` TINYINT(1) DEFAULT 0
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
+
+            $col_t_curr = $conn->query("SHOW COLUMNS FROM `tbl_cbt_terms` LIKE 'is_current'");
+            if (!$col_t_curr || $col_t_curr->num_rows === 0) {
+                $conn->query("ALTER TABLE `tbl_cbt_terms` ADD COLUMN `is_current` TINYINT(1) DEFAULT 0");
+            }
+
+            $stmt_trm = $conn->prepare("REPLACE INTO tbl_cbt_terms (termid, termname, termposition, is_current) VALUES (?, ?, ?, ?)");
+            foreach ($data['terms'] as $trm) {
+                $tpos = !empty($trm['termposition']) ? $trm['termposition'] : '';
+                $is_curr = (!empty($trm['is_current']) || (string)$trm['termid'] === $active_term_id) ? 1 : 0;
+                $stmt_trm->bind_param("sssi", $trm['termid'], $trm['termname'], $tpos, $is_curr);
+                $stmt_trm->execute();
+                $pulled_terms++;
+            }
+        }
 
         // B. Store Class Groups
         if (!empty($data['class_groups']) && is_array($data['class_groups'])) {
@@ -84,36 +147,86 @@ if (isset($_GET['execute']) || isset($_GET['auto'])) {
 
         // D. Store Mark Distributions
         if (!empty($data['mark_distributions']) && is_array($data['mark_distributions'])) {
-            $stmt_md = $conn->prepare("REPLACE INTO tbl_cbt_mark_distributions (markdistid, classgroupid, markname, markscore) VALUES (?, ?, ?, ?)");
+            $col_md_sess = $conn->query("SHOW COLUMNS FROM `tbl_cbt_mark_distributions` LIKE 'sessionid'");
+            if (!$col_md_sess || $col_md_sess->num_rows === 0) {
+                $conn->query("ALTER TABLE `tbl_cbt_mark_distributions` ADD COLUMN `sessionid` VARCHAR(50) DEFAULT '' AFTER `markdistid`");
+            }
+            $col_md_term = $conn->query("SHOW COLUMNS FROM `tbl_cbt_mark_distributions` LIKE 'termid'");
+            if (!$col_md_term || $col_md_term->num_rows === 0) {
+                $conn->query("ALTER TABLE `tbl_cbt_mark_distributions` ADD COLUMN `termid` VARCHAR(50) DEFAULT '' AFTER `sessionid`");
+            }
+
+            // Clean up any legacy rows with empty session/term so filtering works accurately
+            $conn->query("DELETE FROM tbl_cbt_mark_distributions WHERE sessionid = '' OR termid = ''");
+
+            $stmt_md = $conn->prepare("REPLACE INTO tbl_cbt_mark_distributions (markdistid, sessionid, termid, classgroupid, markname, markscore) VALUES (?, ?, ?, ?, ?, ?)");
             foreach ($data['mark_distributions'] as $md) {
+                $md_sess = !empty($md['sessionid']) ? (string)$md['sessionid'] : (!empty($active_session_id) ? (string)$active_session_id : '');
+                $md_term = !empty($md['termid']) ? (string)$md['termid'] : (!empty($active_term_id) ? (string)$active_term_id : '');
                 $score = intval($md['markscore']);
-                $stmt_md->bind_param("sssi", $md['markdistid'], $md['classgroupid'], $md['markname'], $score);
+                $stmt_md->bind_param("sssssi", $md['markdistid'], $md_sess, $md_term, $md['classgroupid'], $md['markname'], $score);
                 $stmt_md->execute();
             }
         }
 
-        // E. Store Active Students Roster
+        // Ensure sessionid and termid columns exist on tbl_cbt_students
+        $col_s_sess = $conn->query("SHOW COLUMNS FROM `tbl_cbt_students` LIKE 'sessionid'");
+        if (!$col_s_sess || $col_s_sess->num_rows === 0) {
+            $conn->query("ALTER TABLE `tbl_cbt_students` ADD COLUMN `sessionid` VARCHAR(50) DEFAULT '' AFTER `schoolid`");
+        }
+        $col_s_term = $conn->query("SHOW COLUMNS FROM `tbl_cbt_students` LIKE 'termid'");
+        if (!$col_s_term || $col_s_term->num_rows === 0) {
+            $conn->query("ALTER TABLE `tbl_cbt_students` ADD COLUMN `termid` VARCHAR(50) DEFAULT '' AFTER `sessionid`");
+        }
+
+        // E. Store Active Students Roster (Filtered by Active Session ID & Active Term ID)
         if (!empty($data['students']) && is_array($data['students'])) {
-            $stmt_std = $conn->prepare("REPLACE INTO tbl_cbt_students (studentid, schoolid, regnumber, firstname, lastname, middlename, classgroupid, classid, classname, password_raw, pin, gender) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            $stmt_std = $conn->prepare("REPLACE INTO tbl_cbt_students (studentid, schoolid, sessionid, termid, regnumber, firstname, lastname, middlename, classgroupid, classid, classname, password_raw, pin, gender) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
             foreach ($data['students'] as $st) {
+                // Filter by active session ID offline
+                if (!empty($active_session_id) && !empty($st['sessionid']) && (string)$st['sessionid'] !== (string)$active_session_id) {
+                    continue;
+                }
+                // Filter by active term ID offline if student record has a specific term
+                if (!empty($active_term_id) && !empty($st['termid']) && (string)$st['termid'] !== (string)$active_term_id) {
+                    continue;
+                }
+
+                $st_sess = !empty($st['sessionid']) ? $st['sessionid'] : $active_session_id;
+                $st_term = !empty($st['termid']) ? $st['termid'] : $active_term_id;
                 $pwd = !empty($st['password_raw']) ? $st['password_raw'] : '123456';
                 $pin = !empty($st['pin']) ? $st['pin'] : '1234';
                 $cgid = !empty($st['classgroupid']) ? $st['classgroupid'] : '';
-                $stmt_std->bind_param("ssssssssssss", $st['studentid'], $st['schoolid'], $st['regnumber'], $st['firstname'], $st['lastname'], $st['middlename'], $cgid, $st['classid'], $st['classname'], $pwd, $pin, $st['gender']);
+                $stmt_std->bind_param("ssssssssssssss", $st['studentid'], $st['schoolid'], $st_sess, $st_term, $st['regnumber'], $st['firstname'], $st['lastname'], $st['middlename'], $cgid, $st['classid'], $st['classname'], $pwd, $pin, $st['gender']);
                 $stmt_std->execute();
                 $pulled_students++;
             }
         }
 
+        // Ensure schedule columns exist in tbl_cbt_exams
+        $chk_ex_date = $conn->query("SHOW COLUMNS FROM `tbl_cbt_exams` LIKE 'exam_date'");
+        if (!$chk_ex_date || $chk_ex_date->num_rows === 0) {
+            $conn->query("ALTER TABLE `tbl_cbt_exams` ADD COLUMN `exam_date` DATE DEFAULT NULL AFTER `markname`");
+            $conn->query("ALTER TABLE `tbl_cbt_exams` ADD COLUMN `end_date` DATE DEFAULT NULL AFTER `exam_date`");
+            $conn->query("ALTER TABLE `tbl_cbt_exams` ADD COLUMN `start_time` TIME DEFAULT '08:00:00' AFTER `end_date`");
+            $conn->query("ALTER TABLE `tbl_cbt_exams` ADD COLUMN `end_time` TIME DEFAULT '17:00:00' AFTER `start_time`");
+        }
+
         // F. Store Active CBT Exams
         if (!empty($data['exams']) && is_array($data['exams'])) {
-            $stmt_ex = $conn->prepare("REPLACE INTO tbl_cbt_exams (examid, schoolid, title, sessionid, termid, classgroupid, classid, subjectid, subjectname, markdistid, markname, duration_minutes, total_questions, passmark, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            $stmt_ex = $conn->prepare("REPLACE INTO tbl_cbt_exams (examid, schoolid, title, sessionid, termid, classgroupid, classid, subjectid, subjectname, markdistid, markname, exam_date, end_date, start_time, end_time, duration_minutes, total_questions, passmark, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
             foreach ($data['exams'] as $ex) {
                 $cgid = !empty($ex['classgroupid']) ? $ex['classgroupid'] : '';
                 $cid = !empty($ex['classid']) ? $ex['classid'] : '';
                 $mdid = !empty($ex['markdistid']) ? $ex['markdistid'] : '';
                 $mname = !empty($ex['markname']) ? $ex['markname'] : '';
-                $stmt_ex->bind_param("sssssssssssiiii", $ex['examid'], $ex['schoolid'], $ex['title'], $ex['sessionid'], $ex['termid'], $cgid, $cid, $ex['subjectid'], $ex['subjectname'], $mdid, $mname, $ex['duration_minutes'], $ex['total_questions'], $ex['passmark'], $ex['is_active']);
+                $ex_date = !empty($ex['exam_date']) ? $ex['exam_date'] : date('Y-m-d');
+                $end_date = !empty($ex['end_date']) ? $ex['end_date'] : $ex_date;
+                $start_time = !empty($ex['start_time']) ? $ex['start_time'] : '08:00:00';
+                $end_time = !empty($ex['end_time']) ? $ex['end_time'] : '17:00:00';
+                if (strlen($start_time) === 5) $start_time .= ':00';
+                if (strlen($end_time) === 5) $end_time .= ':00';
+                $stmt_ex->bind_param("sssssssssssssssiiii", $ex['examid'], $ex['schoolid'], $ex['title'], $ex['sessionid'], $ex['termid'], $cgid, $cid, $ex['subjectid'], $ex['subjectname'], $mdid, $mname, $ex_date, $end_date, $start_time, $end_time, $ex['duration_minutes'], $ex['total_questions'], $ex['passmark'], $ex['is_active']);
                 $stmt_ex->execute();
                 $pulled_exams++;
             }
@@ -155,10 +268,22 @@ if (isset($_GET['execute']) || isset($_GET['auto'])) {
             foreach ($admin_list as $adm) {
                 $aid = !empty($adm['adminid']) ? $adm['adminid'] : 'ADM_' . strtoupper(substr(md5(uniqid()), 0, 8));
                 $uname = !empty($adm['username']) ? $adm['username'] : (!empty($adm['email']) ? $adm['email'] : 'admin');
-                $pwd_raw = !empty($adm['password_raw']) ? $adm['password_raw'] : (!empty($adm['password']) ? $adm['password'] : 'admin123');
-                $pwd_hash = password_hash($pwd_raw, PASSWORD_DEFAULT);
+                $default_admin_pwd = 'CBTADMIN2026';
+                $pwd_raw = $default_admin_pwd;
+                $pwd_hash = password_hash($default_admin_pwd, PASSWORD_DEFAULT);
                 $fname = !empty($adm['fullname']) ? $adm['fullname'] : (!empty($adm['name']) ? $adm['name'] : 'System Administrator');
                 $arole = !empty($adm['role']) ? $adm['role'] : 'Admin';
+
+                // If admin already changed password from default, preserve it across re-syncs
+                $esc_u = $conn->real_escape_string($uname);
+                $chk_ex = $conn->query("SELECT password_raw, password_hash FROM tbl_cbt_admins WHERE schoolid = '$schoolid' AND username = '$esc_u' LIMIT 1");
+                if ($chk_ex && $chk_ex->num_rows > 0) {
+                    $ex_row = $chk_ex->fetch_assoc();
+                    if (!empty($ex_row['password_hash']) && !password_verify('CBTADMIN2026', $ex_row['password_hash']) && $ex_row['password_raw'] !== 'CBTADMIN2026') {
+                        $pwd_raw = $ex_row['password_raw'];
+                        $pwd_hash = $ex_row['password_hash'];
+                    }
+                }
                 
                 $stmt_adm->bind_param("sssssss", $aid, $schoolid, $uname, $pwd_raw, $pwd_hash, $fname, $arole);
                 $stmt_adm->execute();
@@ -171,7 +296,7 @@ if (isset($_GET['execute']) || isset($_GET['auto'])) {
         if (!$chk_adm || $chk_adm->fetch_assoc()['cnt'] == 0) {
             $def_aid = 'ADM_' . $schoolid . '_001';
             $def_uname = 'admin';
-            $def_pwd_raw = 'admin123';
+            $def_pwd_raw = 'CBTADMIN2026';
             $def_pwd_hash = password_hash($def_pwd_raw, PASSWORD_DEFAULT);
             $def_fname = 'School CBT Admin';
             $def_role = 'Super Admin';
@@ -183,8 +308,10 @@ if (isset($_GET['execute']) || isset($_GET['auto'])) {
         }
 
         // Log Success
-        $log_msg = "Successfully fetched REST API data for " . $sp['schoolname'] . ": " . number_format($pulled_students) . " students, $pulled_exams CBT exams, and $pulled_questions questions imported.";
-        $conn->query("INSERT INTO tbl_cbt_sync_logs (sync_type, status, records_affected, message) VALUES ('PULL_API', 'SUCCESS', " . ($pulled_students + $pulled_exams) . ", '$log_msg')");
+        $act_sname = !empty($data['active_session']['sessionname']) ? $data['active_session']['sessionname'] : $active_session_id;
+        $act_tname = !empty($data['active_term']['termname']) ? $data['active_term']['termname'] : $active_term_id;
+        $log_msg = "Successfully fetched REST API data for " . $sp['schoolname'] . ": " . number_format($pulled_students) . " active students (Session: $act_sname, Term: $act_tname), $pulled_sessions sessions, $pulled_terms terms, $pulled_exams CBT exams, and $pulled_questions questions imported.";
+        $conn->query("INSERT INTO tbl_cbt_sync_logs (sync_type, status, records_affected, message) VALUES ('PULL_API', 'SUCCESS', " . ($pulled_students + $pulled_exams) . ", '" . $conn->real_escape_string($log_msg) . "')");
         
         if (isset($_GET['schoolid']) || isset($_GET['auto'])) {
             header("Location: ../admin/login.php?setup_done=1");
@@ -207,59 +334,10 @@ if (isset($_GET['execute']) || isset($_GET['auto'])) {
 <body style="display: block; padding: 0;">
     <div class="app-layout">
         <!-- SIDEBAR NAVIGATION -->
-        <aside class="sidebar">
-            <div>
-                <div class="sidebar-brand">
-                    <i class="fa-solid fa-laptop-code"></i>
-                    <div>
-                        EduPortal
-                        <span>Offline CBT Admin</span>
-                    </div>
-                </div>
-                
-                <?php if (is_admin_logged_in()): ?>
-                    <div style="padding: 10px 14px; margin-bottom: 16px; background: rgba(255,255,255,0.03); border-radius: 8px; border: 1px solid var(--border-color);">
-                        <div style="font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px;">Admin Logged In:</div>
-                        <div style="font-weight: 700; font-size: 13px; color: var(--text-main); text-overflow: ellipsis; overflow: hidden; white-space: nowrap;"><?= htmlspecialchars(!empty($_SESSION['cbt_admin']['fullname']) ? $_SESSION['cbt_admin']['fullname'] : $_SESSION['cbt_admin']['username']) ?></div>
-                    </div>
-                <?php endif; ?>
-
-                <nav class="sidebar-menu">
-                    <a href="../admin/index.php" class="sidebar-link">
-                        <i class="fa-solid fa-gauge-high"></i> Dashboard
-                    </a>
-                    <a href="../admin/exams.php" class="sidebar-link">
-                        <i class="fa-solid fa-list-check"></i> Manage Exams
-                    </a>
-                    <a href="../admin/questions.php" class="sidebar-link">
-                        <i class="fa-solid fa-layer-group"></i> Question Bank
-                    </a>
-                    <a href="../admin/students.php" class="sidebar-link">
-                        <i class="fa-solid fa-users"></i> Student Roster
-                    </a>
-                    <a href="sync_pull.php" class="sidebar-link active">
-                        <i class="fa-solid fa-cloud-arrow-down"></i> Pull Online Data
-                    </a>
-                    <a href="sync_push.php" class="sidebar-link">
-                        <i class="fa-solid fa-cloud-arrow-up"></i> Push Scores Online
-                    </a>
-                    <a href="../admin/reset.php" class="sidebar-link">
-                        <i class="fa-solid fa-rotate"></i> Reset Data
-                    </a>
-                    <?php if (is_admin_logged_in()): ?>
-                        <a href="../admin/login.php?logout=1" class="sidebar-link" style="color: var(--danger); margin-top: 8px;">
-                            <i class="fa-solid fa-right-from-bracket"></i> Logout
-                        </a>
-                    <?php endif; ?>
-                </nav>
-            </div>
-
-            <div>
-                <a href="../student/login.php" target="_blank" class="btn-launch-student">
-                    <i class="fa-solid fa-up-right-from-square"></i> Launch Student Exam
-                </a>
-            </div>
-        </aside>
+        <?php 
+        $active_nav = 'sync_pull';
+        include __DIR__ . '/../admin/sidebar.php'; 
+        ?>
 
         <!-- MAIN CONTENT AREA -->
         <main class="main-content">
