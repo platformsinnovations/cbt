@@ -169,6 +169,41 @@ if (isset($_GET['execute']) || isset($_GET['auto'])) {
             }
         }
 
+        // D2. Store Session Configurations (tbl_cbt_session_config)
+        $conn->query("CREATE TABLE IF NOT EXISTS `tbl_cbt_session_config` (
+            `sessionconfigid` VARCHAR(50) NOT NULL PRIMARY KEY,
+            `schoolid` VARCHAR(50) NOT NULL,
+            `sessionid` VARCHAR(50) NOT NULL,
+            `classgroupid` VARCHAR(50) NOT NULL,
+            `termgroupid` VARCHAR(50) DEFAULT '',
+            `termid` VARCHAR(50) NOT NULL,
+            `scoredistid` VARCHAR(50) DEFAULT '',
+            `annualpercentage` VARCHAR(10) DEFAULT '',
+            KEY `idx_cg_sess` (`classgroupid`, `sessionid`),
+            KEY `idx_term` (`termid`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
+
+        $pulled_session_configs = 0;
+        if (!empty($data['session_configs']) && is_array($data['session_configs'])) {
+            $stmt_sc = $conn->prepare("REPLACE INTO tbl_cbt_session_config (sessionconfigid, schoolid, sessionid, classgroupid, termgroupid, termid, scoredistid, annualpercentage) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+            foreach ($data['session_configs'] as $sc) {
+                $sc_ann = !empty($sc['annualpercentage']) ? (string)$sc['annualpercentage'] : '';
+                $sc_tg = !empty($sc['termgroupid']) ? (string)$sc['termgroupid'] : '';
+                $stmt_sc->bind_param("ssssssss", 
+                    $sc['sessionconfigid'], 
+                    $sc['schoolid'], 
+                    $sc['sessionid'], 
+                    $sc['classgroupid'], 
+                    $sc_tg, 
+                    $sc['termid'], 
+                    $sc['scoredistid'], 
+                    $sc_ann
+                );
+                $stmt_sc->execute();
+                $pulled_session_configs++;
+            }
+        }
+
         // Ensure sessionid and termid columns exist on tbl_cbt_students
         $col_s_sess = $conn->query("SHOW COLUMNS FROM `tbl_cbt_students` LIKE 'sessionid'");
         if (!$col_s_sess || $col_s_sess->num_rows === 0) {

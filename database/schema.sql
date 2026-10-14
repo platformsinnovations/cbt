@@ -39,6 +39,20 @@ CREATE TABLE IF NOT EXISTS `tbl_cbt_mark_distributions` (
     PRIMARY KEY (`markdistid`, `sessionid`, `termid`, `classgroupid`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- 3b. SESSION CONFIGURATIONS (FROM EDUPORTAL TBL_SESSION_CONFIG)
+CREATE TABLE IF NOT EXISTS `tbl_cbt_session_config` (
+    `sessionconfigid` VARCHAR(50) NOT NULL PRIMARY KEY,
+    `schoolid` VARCHAR(50) NOT NULL,
+    `sessionid` VARCHAR(50) NOT NULL,
+    `classgroupid` VARCHAR(50) NOT NULL,
+    `termgroupid` VARCHAR(50) DEFAULT '',
+    `termid` VARCHAR(50) NOT NULL,
+    `scoredistid` VARCHAR(50) DEFAULT '',
+    `annualpercentage` VARCHAR(10) DEFAULT '',
+    KEY `idx_cg_sess` (`classgroupid`, `sessionid`),
+    KEY `idx_term` (`termid`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- 4. ACADEMIC SESSIONS & TERMS
 CREATE TABLE IF NOT EXISTS `tbl_cbt_sessions` (
     `sessionid` VARCHAR(50) NOT NULL PRIMARY KEY,

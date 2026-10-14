@@ -20,6 +20,115 @@ if ($chk_col && $chk_col->num_rows === 0) {
     $conn->query("ALTER TABLE tbl_cbt_exams ADD COLUMN `end_time` TIME DEFAULT '17:00:00' AFTER `start_time`");
 }
 
+// Ensure tbl_cbt_session_config exists locally
+$chk_sc = $conn->query("SHOW TABLES LIKE 'tbl_cbt_session_config'");
+if (!$chk_sc || $chk_sc->num_rows === 0) {
+    $conn->query("CREATE TABLE IF NOT EXISTS `tbl_cbt_session_config` (
+        `sessionconfigid` VARCHAR(50) NOT NULL PRIMARY KEY,
+        `schoolid` VARCHAR(50) NOT NULL,
+        `sessionid` VARCHAR(50) NOT NULL,
+        `classgroupid` VARCHAR(50) NOT NULL,
+        `termgroupid` VARCHAR(50) DEFAULT '',
+        `termid` VARCHAR(50) NOT NULL,
+        `scoredistid` VARCHAR(50) DEFAULT '',
+        `annualpercentage` VARCHAR(10) DEFAULT '',
+        KEY `idx_cg_sess` (`classgroupid`, `sessionid`),
+        KEY `idx_term` (`termid`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
+}
+
+// Helper: Fetch Eligible Terms by Class Group & Academic Session
+if (!function_exists('get_eligible_terms')) {
+    function get_eligible_terms($conn, $classgroupid, $sessionid) {
+        $terms = [];
+        if (empty($classgroupid) || empty($sessionid)) {
+            return $terms;
+        }
+
+        $esc_cgid = $conn->real_escape_string($classgroupid);
+        $esc_sess = $conn->real_escape_string($sessionid);
+
+        $has_sc = false;
+        $chk_sc_local = $conn->query("SHOW TABLES LIKE 'tbl_cbt_session_config'");
+        if ($chk_sc_local && $chk_sc_local->num_rows > 0) {
+            $has_sc = true;
+        }
+
+        $sc_subquery = $has_sc ? "SELECT sc.termid FROM tbl_cbt_session_config sc WHERE sc.classgroupid = '$esc_cgid' AND sc.sessionid = '$esc_sess' AND sc.termid != '' UNION " : "";
+
+        $sort_clause = "ORDER BY 
+            CASE 
+                WHEN LOWER(t.termposition) = 'begining' OR LOWER(t.termposition) = 'beginning' OR t.termposition = '1' OR LOWER(t.termname) LIKE '%1st%' OR LOWER(t.termname) LIKE '%first%' THEN 1
+                WHEN LOWER(t.termposition) = 'middle' OR t.termposition = '2' OR LOWER(t.termname) LIKE '%2nd%' OR LOWER(t.termname) LIKE '%second%' THEN 2
+                WHEN LOWER(t.termposition) = 'last' OR t.termposition = '3' OR LOWER(t.termname) LIKE '%3rd%' OR LOWER(t.termname) LIKE '%third%' THEN 3
+                ELSE 4
+            END ASC, t.termname ASC";
+
+        $sql = "SELECT DISTINCT t.termid, t.termname, t.termposition, t.is_current 
+                FROM tbl_cbt_terms t
+                WHERE t.termid IN (
+                    $sc_subquery
+                    SELECT md.termid FROM tbl_cbt_mark_distributions md 
+                    WHERE (md.classgroupid = '$esc_cgid' OR md.classgroupid = '') 
+                      AND (md.sessionid = '$esc_sess' OR md.sessionid = '') 
+                      AND md.termid != ''
+                    UNION
+                    SELECT s.termid FROM tbl_cbt_students s 
+                    WHERE (s.classgroupid = '$esc_cgid' OR s.classid = '$esc_cgid') 
+                      AND s.sessionid = '$esc_sess' 
+                      AND s.termid != ''
+                    UNION
+                    SELECT e.termid FROM tbl_cbt_exams e 
+                    WHERE (e.classgroupid = '$esc_cgid' OR e.classid = '$esc_cgid') 
+                      AND e.sessionid = '$esc_sess' 
+                      AND e.termid != ''
+                )
+                $sort_clause";
+
+        $res = $conn->query($sql);
+        if ($res && $res->num_rows > 0) {
+            while ($row = $res->fetch_assoc()) {
+                $terms[] = [
+                    'termid' => $row['termid'],
+                    'termname' => $row['termname'],
+                    'termposition' => $row['termposition'],
+                    'is_current' => (int)$row['is_current']
+                ];
+            }
+        }
+
+        // Fallback: If no terms matched in session configs or mark dist, check active school term or terms list
+        if (empty($terms)) {
+            $fallback_sql = "SELECT DISTINCT termid, termname, termposition, is_current FROM tbl_cbt_terms WHERE is_current = 1 LIMIT 1";
+            $res_fb = $conn->query($fallback_sql);
+            if ($res_fb && $res_fb->num_rows > 0) {
+                while ($row = $res_fb->fetch_assoc()) {
+                    $terms[] = [
+                        'termid' => $row['termid'],
+                        'termname' => $row['termname'],
+                        'termposition' => $row['termposition'],
+                        'is_current' => (int)$row['is_current']
+                    ];
+                }
+            }
+        }
+
+        return $terms;
+    }
+}
+
+// Dynamic AJAX Endpoint: Fetch Eligible Terms by Class Group & Academic Session
+if (isset($_GET['ajax']) && $_GET['ajax'] === 'get_eligible_terms') {
+    if (!headers_sent()) {
+        header('Content-Type: application/json; charset=utf-8');
+    }
+    $cg_in = isset($_GET['classgroupid']) ? trim($_GET['classgroupid']) : '';
+    $s_in = isset($_GET['sessionid']) ? trim($_GET['sessionid']) : '';
+    $eligible_terms = get_eligible_terms($conn, $cg_in, $s_in);
+    echo json_encode($eligible_terms);
+    exit;
+}
+
 // Toggle Exam Activation
 if (isset($_GET['toggle_active'])) {
     $examid = trim($_GET['toggle_active']);
@@ -210,7 +319,7 @@ if ($res_sub && $res_sub->num_rows > 0) {
 }
 
 // Fetch Class Groups for dropdown
-$res_cg = $conn->query("SELECT classgroupid, classgroupname FROM tbl_cbt_class_groups ORDER BY classgrouplevel ASC, classgroupname ASC");
+$res_cg = $conn->query("SELECT classgroupid, classgroupname FROM tbl_cbt_class_groups ORDER BY classgroupname ASC");
 $class_groups = [];
 if ($res_cg && $res_cg->num_rows > 0) {
     while ($cg = $res_cg->fetch_assoc()) {
@@ -245,6 +354,11 @@ if (isset($_GET['edit'])) {
     if ($res_ed && $res_ed->num_rows > 0) {
         $edit_exam = $res_ed->fetch_assoc();
     }
+}
+
+$initial_eligible_terms = [];
+if ($edit_exam && !empty($edit_exam['classgroupid']) && !empty($edit_exam['sessionid'])) {
+    $initial_eligible_terms = get_eligible_terms($conn, $edit_exam['classgroupid'], $edit_exam['sessionid']);
 }
 
 if (isset($_GET['msg'])) {
@@ -297,7 +411,7 @@ if (isset($_GET['msg'])) {
                         <!-- 1. TARGET CLASS GROUP SELECTOR (Selected First) -->
                         <div class="form-group">
                             <label class="form-label" for="classgroupid"><i class="fa-solid fa-users"></i> Target Class Group</label>
-                            <select id="classgroupid" name="classgroupid" class="form-control" onchange="updateMarkDistributions()" required style="background: rgba(15, 23, 42, 0.9); font-weight: 600;">
+                            <select id="classgroupid" name="classgroupid" class="form-control" onchange="fetchEligibleTerms()" required style="background: rgba(15, 23, 42, 0.9); font-weight: 600;">
                                 <option value="">-- Select Target Class Group --</option>
                                 <?php foreach ($class_groups as $cg): ?>
                                     <option value="<?= htmlspecialchars($cg['classgroupid']) ?>" <?= ($edit_exam && $edit_exam['classgroupid'] === $cg['classgroupid']) ? 'selected' : '' ?>>
@@ -311,7 +425,7 @@ if (isset($_GET['msg'])) {
                         <div class="grid-2" style="gap: 12px;">
                             <div class="form-group">
                                 <label class="form-label" for="sessionid"><i class="fa-solid fa-calendar-days"></i> Academic Session</label>
-                                <select id="sessionid" name="sessionid" class="form-control" onchange="updateMarkDistributions()" required style="background: rgba(15, 23, 42, 0.9); font-weight: 600;">
+                                <select id="sessionid" name="sessionid" class="form-control" onchange="fetchEligibleTerms()" required style="background: rgba(15, 23, 42, 0.9); font-weight: 600;">
                                     <option value="">-- Select Academic Session --</option>
                                     <?php foreach ($academic_sessions as $s): ?>
                                         <option value="<?= htmlspecialchars($s['sessionid']) ?>" <?= ($edit_exam && $edit_exam['sessionid'] === $s['sessionid']) ? 'selected' : '' ?>>
@@ -322,14 +436,25 @@ if (isset($_GET['msg'])) {
                             </div>
 
                             <div class="form-group">
-                                <label class="form-label" for="termid"><i class="fa-solid fa-clock-rotate-left"></i> Academic Term</label>
+                                <label class="form-label" for="termid">
+                                    <i class="fa-solid fa-clock-rotate-left"></i> Academic Term
+                                    <span id="termCountBadge" style="font-size: 11px; font-weight: 600; color: var(--accent); margin-left: 6px;"></span>
+                                </label>
                                 <select id="termid" name="termid" class="form-control" onchange="updateMarkDistributions()" required style="background: rgba(15, 23, 42, 0.9); font-weight: 600;">
-                                    <option value="">-- Select Academic Term --</option>
-                                    <?php foreach ($academic_terms as $t): ?>
-                                        <option value="<?= htmlspecialchars($t['termid']) ?>" <?= ($edit_exam && $edit_exam['termid'] === $t['termid']) ? 'selected' : '' ?>>
-                                            <?= htmlspecialchars($t['termname']) ?>
+                                    <?php if ($edit_exam && !empty($initial_eligible_terms)): ?>
+                                        <option value="">-- Select Academic Term --</option>
+                                        <?php foreach ($initial_eligible_terms as $t): ?>
+                                            <option value="<?= htmlspecialchars($t['termid']) ?>" <?= ($edit_exam['termid'] === $t['termid']) ? 'selected' : '' ?>>
+                                                <?= htmlspecialchars($t['termname']) ?>
+                                            </option>
+                                        <?php endforeach; ?>
+                                    <?php elseif ($edit_exam && !empty($edit_exam['termid'])): ?>
+                                        <option value="<?= htmlspecialchars($edit_exam['termid']) ?>" selected>
+                                            <?= htmlspecialchars(!empty($edit_exam['termname']) ? $edit_exam['termname'] : 'Selected Term') ?>
                                         </option>
-                                    <?php endforeach; ?>
+                                    <?php else: ?>
+                                        <option value="">-- Select Class Group & Session First --</option>
+                                    <?php endif; ?>
                                 </select>
                             </div>
                         </div>
@@ -571,6 +696,14 @@ if (isset($_GET['msg'])) {
     <script>
         const allMarkDistributions = <?= json_encode($mark_distributions) ?>;
         const currentEditMarkDistId = <?= json_encode($edit_exam ? $edit_exam['markdistid'] : '') ?>;
+        const currentEditTermId = <?= json_encode($edit_exam ? $edit_exam['termid'] : '') ?>;
+
+        function escapeHtml(str) {
+            if (!str) return '';
+            return String(str).replace(/[&<>"']/g, function(m) {
+                return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[m];
+            });
+        }
 
         function updateSubjectName(selectElem) {
             const selectedOpt = selectElem.options[selectElem.selectedIndex];
@@ -589,6 +722,82 @@ if (isset($_GET['msg'])) {
             } else if (hiddenInput) {
                 hiddenInput.value = '';
             }
+        }
+
+        // Fetch Eligible Terms based on selected Target Class Group and Academic Session
+        function fetchEligibleTerms(selectedTermToRestore = null) {
+            const classgroupElem = document.getElementById('classgroupid');
+            const sessionElem = document.getElementById('sessionid');
+            const termElem = document.getElementById('termid');
+            const badge = document.getElementById('termCountBadge');
+
+            const classgroupid = classgroupElem ? classgroupElem.value.trim() : '';
+            const sessionid = sessionElem ? sessionElem.value.trim() : '';
+
+            if (!classgroupid && !sessionid) {
+                termElem.innerHTML = '<option value="">-- Select Class Group & Session First --</option>';
+                if (badge) badge.textContent = '';
+                updateMarkDistributions();
+                return;
+            }
+
+            if (!classgroupid) {
+                termElem.innerHTML = '<option value="">-- Select Target Class Group First --</option>';
+                if (badge) badge.textContent = '';
+                updateMarkDistributions();
+                return;
+            }
+
+            if (!sessionid) {
+                termElem.innerHTML = '<option value="">-- Select Academic Session First --</option>';
+                if (badge) badge.textContent = '';
+                updateMarkDistributions();
+                return;
+            }
+
+            // Determine which term to select after loading
+            const currentTerm = (selectedTermToRestore !== null && selectedTermToRestore !== undefined) 
+                ? selectedTermToRestore 
+                : (termElem ? termElem.value.trim() : '');
+
+            termElem.innerHTML = '<option value="">-- Loading Eligible Terms... --</option>';
+            if (badge) badge.textContent = '(Fetching...)';
+
+            fetch(`exams.php?ajax=get_eligible_terms&classgroupid=${encodeURIComponent(classgroupid)}&sessionid=${encodeURIComponent(sessionid)}`)
+                .then(res => res.json())
+                .then(terms => {
+                    let optionsHtml = '';
+                    if (Array.isArray(terms) && terms.length > 0) {
+                        optionsHtml = '<option value="">-- Select Academic Term --</option>';
+                        let matched = false;
+                        terms.forEach(t => {
+                            const isSelected = (currentTerm && String(t.termid).trim() === String(currentTerm).trim());
+                            if (isSelected) matched = true;
+                            optionsHtml += `<option value="${escapeHtml(t.termid)}" ${isSelected ? 'selected' : ''}>${escapeHtml(t.termname)}</option>`;
+                        });
+
+                        // If only 1 eligible term, auto-select it!
+                        if (terms.length === 1 && !matched) {
+                            optionsHtml = `<option value="${escapeHtml(terms[0].termid)}" selected>${escapeHtml(terms[0].termname)}</option>`;
+                            matched = true;
+                        }
+
+                        termElem.innerHTML = optionsHtml;
+                        if (badge) badge.textContent = `(${terms.length} eligible term${terms.length === 1 ? '' : 's'})`;
+                    } else {
+                        termElem.innerHTML = '<option value="">-- No Eligible Terms Found for Selected Session --</option>';
+                        if (badge) badge.textContent = '(0 eligible)';
+                    }
+
+                    // Update Mark Distributions based on the newly updated term selection
+                    updateMarkDistributions();
+                })
+                .catch(err => {
+                    console.error('Failed to load eligible terms:', err);
+                    termElem.innerHTML = '<option value="">-- Failed to Load Terms --</option>';
+                    if (badge) badge.textContent = '';
+                    updateMarkDistributions();
+                });
         }
 
         function updateMarkDistributions() {
@@ -647,6 +856,12 @@ if (isset($_GET['msg'])) {
                     }
                     markDistSelect.appendChild(opt);
                 });
+
+                // Auto-select if only 1 mark distribution available and none selected yet
+                if (uniqueDist.length === 1 && markDistSelect.selectedIndex <= 0) {
+                    markDistSelect.selectedIndex = 1;
+                    if (hiddenMarkName) hiddenMarkName.value = uniqueDist[0].markname;
+                }
             } else {
                 markDistSelect.innerHTML = '<option value="">-- No Mark Distribution Found for Selected Session & Term --</option>';
                 if (hiddenMarkName) hiddenMarkName.value = '';
@@ -755,7 +970,18 @@ if (isset($_GET['msg'])) {
                 });
             }
 
-            updateMarkDistributions();
+            if (currentEditTermId) {
+                // In edit mode: term is preloaded in HTML, ensure mark distributions are populated and selected
+                updateMarkDistributions();
+            } else {
+                const cg = document.getElementById('classgroupid');
+                const sess = document.getElementById('sessionid');
+                if (cg && sess && cg.value && sess.value) {
+                    fetchEligibleTerms();
+                } else {
+                    updateMarkDistributions();
+                }
+            }
             const subSelect = document.getElementById('subjectid');
             if (subSelect && subSelect.selectedIndex > 0) {
                 updateSubjectName(subSelect);
