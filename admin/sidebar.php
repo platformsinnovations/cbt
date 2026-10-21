@@ -60,6 +60,9 @@ $nav_term_name = isset($active_term_name) && !empty($active_term_name)
             </div>
         <?php endif; ?>
         <nav class="sidebar-menu">
+            <a href="<?= $admin_path ?>instructions.php" class="sidebar-link <?= ($current_nav === 'instructions' || $current_nav === 'usage_instructions') ? 'active' : '' ?>">
+                <i class="fa-solid fa-circle-question"></i> Usage Instructions
+            </a>
             <a href="<?= $admin_path ?>index.php" class="sidebar-link <?= ($current_nav === 'index' || $current_nav === 'dashboard') ? 'active' : '' ?>">
                 <i class="fa-solid fa-gauge-high"></i> Dashboard
             </a>

@@ -140,8 +140,9 @@ if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') 
                 </button>
             </form>
 
-            <div style="margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--border-color); font-size: 13px; color: var(--text-muted); display: flex; justify-content: space-between; align-items: center;">
+            <div style="margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--border-color); font-size: 13px; color: var(--text-muted); display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap;">
                 <a href="../index.php" style="color: var(--text-muted); text-decoration: none;"><i class="fa-solid fa-house"></i> Main Portal</a>
+                <a href="instructions.php" style="color: var(--primary); text-decoration: none; font-weight: 600;"><i class="fa-solid fa-circle-question"></i> Usage Instructions</a>
                 <a href="setup.php" style="color: var(--text-muted); text-decoration: none;"><i class="fa-solid fa-rotate"></i> Re-setup</a>
             </div>
         </div>
