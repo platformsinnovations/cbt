@@ -1,7 +1,10 @@
 <?php
+error_reporting(E_ALL);
+ini_set('memory_limit', '-1');
+
 require_once __DIR__ . '/../config/config.php';
 
-$error   = '';
+$error = '';
 $success = '';
 
 if (isset($_GET['error']) && empty($error)) {
@@ -14,7 +17,7 @@ $input_online_url = isset($_POST['online_url']) && !empty($_POST['online_url'])
     : (isset($_GET['online_url']) && !empty($_GET['online_url']) ? rtrim(trim($_GET['online_url']), '/') : DEFAULT_ONLINE_URL);
 
 if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') {
-    $schoolid   = $input_schoolid;
+    $schoolid = $input_schoolid;
     $online_url = $input_online_url;
 
     if (empty($schoolid)) {
@@ -68,8 +71,13 @@ if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') 
 
             // Initialize Database Schema
             $schemaSql = file_get_contents(__DIR__ . '/../database/schema.sql');
-            $conn->multi_query($schemaSql);
-            while ($conn->next_result()) {;} // flush multi queries
+            if ($conn->multi_query($schemaSql)) {
+                do {
+                    if ($res = $conn->store_result()) {
+                        $res->free();
+                    }
+                } while ($conn->more_results() && $conn->next_result());
+            }
 
             // Store initial school ID and target URL
             $stmt = $conn->prepare("REPLACE INTO tbl_cbt_school (schoolid, schoolname, online_url, last_synced_at) VALUES (?, 'Initializing...', ?, NOW())");
@@ -86,14 +94,15 @@ if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') 
 }
 
 // Detect if running as bundled server (not localhost/80)
-$isPackaged   = defined('CBT_SERVER_PORT') && CBT_SERVER_PORT !== 80;
-$lanIP        = get_local_server_ip();
-$serverPort   = defined('CBT_SERVER_PORT') ? CBT_SERVER_PORT : 80;
-$studentUrl   = ($serverPort === 80) ? "http://{$lanIP}" : "http://{$lanIP}:{$serverPort}";
+$isPackaged = defined('CBT_SERVER_PORT') && CBT_SERVER_PORT !== 80;
+$lanIP = get_local_server_ip();
+$serverPort = defined('CBT_SERVER_PORT') ? CBT_SERVER_PORT : 80;
+$studentUrl = ($serverPort === 80) ? "http://{$lanIP}" : "http://{$lanIP}:{$serverPort}";
 $localhostUrl = ($serverPort === 80) ? "http://localhost" : "http://localhost:{$serverPort}";
 ?>
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -109,6 +118,7 @@ $localhostUrl = ($serverPort === 80) ? "http://localhost" : "http://localhost:{$
             margin-bottom: 24px;
             text-align: center;
         }
+
         .lan-banner h3 {
             font-size: 13px;
             font-weight: 600;
@@ -117,16 +127,18 @@ $localhostUrl = ($serverPort === 80) ? "http://localhost" : "http://localhost:{$
             letter-spacing: 1px;
             margin: 0 0 8px 0;
         }
+
         .lan-url-box {
             display: flex;
             align-items: center;
             justify-content: center;
             gap: 10px;
-            background: rgba(0,0,0,0.3);
+            background: rgba(0, 0, 0, 0.3);
             border-radius: 8px;
             padding: 10px 14px;
             margin: 6px 0;
         }
+
         .lan-url-box code {
             font-size: 20px;
             font-weight: 700;
@@ -134,9 +146,10 @@ $localhostUrl = ($serverPort === 80) ? "http://localhost" : "http://localhost:{$
             font-family: 'Courier New', monospace;
             letter-spacing: 1px;
         }
+
         .copy-btn {
-            background: rgba(255,255,255,0.15);
-            border: 1px solid rgba(255,255,255,0.3);
+            background: rgba(255, 255, 255, 0.15);
+            border: 1px solid rgba(255, 255, 255, 0.3);
             color: white;
             border-radius: 6px;
             padding: 4px 10px;
@@ -144,13 +157,22 @@ $localhostUrl = ($serverPort === 80) ? "http://localhost" : "http://localhost:{$
             font-size: 12px;
             transition: background 0.2s;
         }
-        .copy-btn:hover { background: rgba(255,255,255,0.3); }
-        .lan-banner small { color: #a8f0c0; font-size: 12px; }
+
+        .copy-btn:hover {
+            background: rgba(255, 255, 255, 0.3);
+        }
+
+        .lan-banner small {
+            color: #a8f0c0;
+            font-size: 12px;
+        }
+
         .step-badge {
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            width: 26px; height: 26px;
+            width: 26px;
+            height: 26px;
             background: var(--primary);
             border-radius: 50%;
             color: white;
@@ -159,19 +181,31 @@ $localhostUrl = ($serverPort === 80) ? "http://localhost" : "http://localhost:{$
             margin-right: 8px;
             flex-shrink: 0;
         }
-        .steps-list { list-style: none; padding: 0; margin: 0; text-align: left; }
+
+        .steps-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            text-align: left;
+        }
+
         .steps-list li {
             display: flex;
             align-items: center;
             padding: 8px 0;
-            border-bottom: 1px solid rgba(255,255,255,0.06);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
             font-size: 14px;
             color: var(--text-muted);
         }
-        .steps-list li:last-child { border-bottom: none; }
+
+        .steps-list li:last-child {
+            border-bottom: none;
+        }
     </style>
 </head>
-<body class="centered-page" style="display:flex;flex-direction:column;justify-content:center;align-items:center;min-height:100vh;margin:0 auto;width:100%;padding:40px 20px;box-sizing:border-box;">
+
+<body class="centered-page"
+    style="display:flex;flex-direction:column;justify-content:center;align-items:center;min-height:100vh;margin:0 auto;width:100%;padding:40px 20px;box-sizing:border-box;">
     <div class="container" style="max-width:560px;width:100%;margin:0 auto;">
         <div class="card" style="text-align:center;">
 
@@ -188,16 +222,16 @@ $localhostUrl = ($serverPort === 80) ? "http://localhost" : "http://localhost:{$
 
             <!-- LAN URL Banner (only shown in packaged mode) -->
             <?php if ($isPackaged): ?>
-            <div class="lan-banner">
-                <h3><i class="fa-solid fa-wifi"></i> &nbsp;Student Access URL</h3>
-                <div class="lan-url-box">
-                    <code id="studentUrlCode"><?= htmlspecialchars($studentUrl) ?></code>
-                    <button class="copy-btn" onclick="copyUrl()" title="Copy URL">
-                        <i class="fa-regular fa-copy"></i> Copy
-                    </button>
+                <div class="lan-banner">
+                    <h3><i class="fa-solid fa-wifi"></i> &nbsp;Student Access URL</h3>
+                    <div class="lan-url-box">
+                        <code id="studentUrlCode"><?= htmlspecialchars($studentUrl) ?></code>
+                        <button class="copy-btn" onclick="copyUrl()" title="Copy URL">
+                            <i class="fa-regular fa-copy"></i> Copy
+                        </button>
+                    </div>
+                    <small>Share this URL with student computers on the same network</small>
                 </div>
-                <small>Share this URL with student computers on the same network</small>
-            </div>
             <?php endif; ?>
 
             <!-- Setup Steps -->
@@ -205,7 +239,8 @@ $localhostUrl = ($serverPort === 80) ? "http://localhost" : "http://localhost:{$
                 <ul class="steps-list">
                     <li><span class="step-badge">1</span> Enter your School ID below</li>
                     <li><span class="step-badge">2</span> System fetches your school data from the online portal</li>
-                    <li><span class="step-badge">3</span> Students log in using the URL above and take exams offline</li>
+                    <li><span class="step-badge">3</span> Students log in using the URL above and take exams offline
+                    </li>
                 </ul>
             </div>
 
@@ -220,9 +255,9 @@ $localhostUrl = ($serverPort === 80) ? "http://localhost" : "http://localhost:{$
                     <label class="form-label" for="schoolid">
                         <i class="fa-solid fa-school"></i> School ID
                     </label>
-                    <input type="text" id="schoolid" name="schoolid" class="form-control"
-                           placeholder="Enter School ID" value="<?= htmlspecialchars($input_schoolid) ?>" required autofocus
-                           style="font-size:18px;padding:14px;text-align:center;font-weight:700;letter-spacing:1px;">
+                    <input type="text" id="schoolid" name="schoolid" class="form-control" placeholder="Enter School ID"
+                        value="<?= htmlspecialchars($input_schoolid) ?>" required autofocus
+                        style="font-size:18px;padding:14px;text-align:center;font-weight:700;letter-spacing:1px;">
                 </div>
 
                 <div style="margin-bottom:20px;text-align:left;">
@@ -231,11 +266,13 @@ $localhostUrl = ($serverPort === 80) ? "http://localhost" : "http://localhost:{$
                         style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:13px;">
                         <i class="fa-solid fa-gear"></i> Advanced — Server Host Settings
                     </button>
-                    <div id="advancedSettings" style="<?= (!empty($input_online_url) && $input_online_url !== DEFAULT_ONLINE_URL) ? 'block' : 'none' ?>;margin-top:10px;">
+                    <div id="advancedSettings"
+                        style="<?= (!empty($input_online_url) && $input_online_url !== DEFAULT_ONLINE_URL) ? 'block' : 'none' ?>;margin-top:10px;">
                         <label class="form-label" for="online_url">Online Portal Base URL</label>
                         <input type="url" id="online_url" name="online_url" class="form-control"
-                               value="<?= htmlspecialchars($input_online_url) ?>">
-                        <small style="color:var(--text-muted);">Only change this if your school uses a custom portal URL.</small>
+                            value="<?= htmlspecialchars($input_online_url) ?>">
+                        <small style="color:var(--text-muted);">Only change this if your school uses a custom portal
+                            URL.</small>
                     </div>
                 </div>
 
@@ -252,14 +289,15 @@ $localhostUrl = ($serverPort === 80) ? "http://localhost" : "http://localhost:{$
     </div>
 
     <script>
-    function copyUrl() {
-        const url = document.getElementById('studentUrlCode')?.textContent || '';
-        navigator.clipboard.writeText(url).then(() => {
-            const btn = document.querySelector('.copy-btn');
-            btn.innerHTML = '<i class="fa-solid fa-check"></i> Copied!';
-            setTimeout(() => btn.innerHTML = '<i class="fa-regular fa-copy"></i> Copy', 2000);
-        });
-    }
+        function copyUrl() {
+            const url = document.getElementById('studentUrlCode')?.textContent || '';
+            navigator.clipboard.writeText(url).then(() => {
+                const btn = document.querySelector('.copy-btn');
+                btn.innerHTML = '<i class="fa-solid fa-check"></i> Copied!';
+                setTimeout(() => btn.innerHTML = '<i class="fa-regular fa-copy"></i> Copy', 2000);
+            });
+        }
     </script>
 </body>
+
 </html>

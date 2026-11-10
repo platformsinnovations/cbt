@@ -5,6 +5,27 @@
 // Supports both development (XAMPP) and the bundled self-contained installer.
 // =============================================================================
 
+// Turn on comprehensive error reporting
+error_reporting(E_ALL);
+ini_set('display_errors', '1');
+ini_set('display_startup_errors', '1');
+
+// Register shutdown function to capture and display fatal errors if any occur
+register_shutdown_function(function() {
+    $error = error_get_last();
+    if ($error !== null && in_array($error['type'], array(E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR))) {
+        echo "<div style='background:#fee2e2;border:2px solid #ef4444;color:#991b1b;padding:20px;margin:20px auto;max-width:800px;border-radius:8px;font-family:sans-serif;'>";
+        echo "<h3 style='margin:0 0 10px 0;color:#dc2626;'>PHP Fatal Error</h3>";
+        echo "<p style='margin:0 0 8px 0;font-family:monospace;font-size:14px;'>" . htmlspecialchars($error['message']) . "</p>";
+        echo "<p style='margin:0;font-size:12px;color:#7f1d1d;'><strong>File:</strong> " . htmlspecialchars($error['file']) . " on line <strong>" . $error['line'] . "</strong></p>";
+        echo "</div>";
+    }
+});
+
+if (ob_get_level() === 0) {
+    ob_start();
+}
+
 date_default_timezone_set('Africa/Lagos');
 
 // Application Semantic Version (SemVer 2.0.0)
